@@ -29,44 +29,56 @@ const client = new shopify.clients.Graphql({ session });
 
 // --- 2. THE API ENDPOINT ---
 app.post('/api/increment-view', async (req, res) => {
-  console.log('Request received for /api/increment-view'); // New log for debugging
+  console.log('Request received for /api/increment-view');
   try {
     const { postId } = req.body;
     if (!postId) {
       return res.status(400).json({ error: 'Post ID is required' });
     }
-    console.log(`Processing view for postId: ${postId}`); // New log
+    console.log(`Processing view for postId: ${postId}`);
 
-    // --- THIS QUERY IS NOW CORRECTED ---
+    // --- FIND METAOBJECT BY post_id FIELD ---
     const findMetaobjectQuery = `
-      query FindMetaobject($handle: String!) {
-        metaobjectByHandle(type: "custom_post_views", handle: $handle) {
-          id
-          view_count: field(key: "view_count") { value }
+      query FindMetaobject($postId: String!) {
+        metaobjects(type: "custom_post_views", first: 1, query: $postId) {
+          edges {
+            node {
+              id
+              fields {
+                key
+                value
+              }
+            }
+          }
         }
       }
     `;
-    
+
     const findResponse = await client.query({
       data: {
         query: findMetaobjectQuery,
-        variables: { handle: postId }, // Corrected variable structure
+        variables: { postId },
       },
     });
 
-    const metaobject = findResponse.body.data.metaobjectByHandle;
-    if (!metaobject) {
+    console.log("FindResponse:", JSON.stringify(findResponse.body, null, 2));
+
+    const edges = findResponse.body.data.metaobjects.edges;
+    if (edges.length === 0) {
       const errorMessage = `Metaobject not found for postId: ${postId}`;
       console.error(errorMessage);
       return res.status(404).json({ error: errorMessage });
     }
 
-    const currentViewCount = parseInt(metaobject.view_count.value, 10);
+    const metaobject = edges[0].node;
+    const viewField = metaobject.fields.find(f => f.key === "view_count");
+    const currentViewCount = parseInt(viewField?.value || "0", 10);
     const newViewCount = currentViewCount + 1;
     const metaobjectId = metaobject.id;
-    console.log(`Updating count from ${currentViewCount} to ${newViewCount}`); // New log
 
-    // --- THIS MUTATION IS NOW CORRECTED ---
+    console.log(`Updating count from ${currentViewCount} to ${newViewCount}`);
+
+    // --- UPDATE METAOBJECT ---
     const updateMetaobjectMutation = `
       mutation UpdateMetaobject($id: ID!, $viewCount: String!) {
         metaobjectUpdate(
@@ -86,6 +98,8 @@ app.post('/api/increment-view', async (req, res) => {
       },
     });
 
+    console.log("UpdateResponse:", JSON.stringify(updateResponse.body, null, 2));
+
     const userErrors = updateResponse.body.data.metaobjectUpdate.userErrors;
     if (userErrors.length > 0) {
       const errorMessage = userErrors.map(e => e.message).join(', ');
@@ -104,8 +118,9 @@ app.post('/api/increment-view', async (req, res) => {
   }
 });
 
+// Simple health check
 app.get('/', (req, res) => {
-    res.send('Bylanglois Views API is running.');
+  res.send('Bylanglois Views API is running.');
 });
 
 export default app;
