@@ -65,7 +65,7 @@ app.post('/api/increment-view', async (req, res) => {
       mutation UpdateMetaobject($id: ID!, $viewCount: String!) {
         metaobjectUpdate(
           id: $id,
-          metaobject: { fields: [{ key: "view_count", value: $ViewCount }] }
+          metaobject: { fields: [{ key: "view_count", value: "$viewCount" }] }
         ) {
           metaobject { id }
           userErrors { field, message }
