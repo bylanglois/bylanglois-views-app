@@ -15,7 +15,7 @@ const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY,
   scopes: ['write_metaobjects', 'read_metaobjects'],
-  hostName: 'galerie-langlois.myshopify.com', 
+  hostName: 'galerie-langlois.myshopify.com',
   isEmbeddedApp: false,
 });
 
@@ -39,9 +39,8 @@ app.post('/api/increment-view', async (req, res) => {
 
     // --- FIND METAOBJECT BY post_id FIELD ---
     const findMetaobjectQuery = `
-      query FindMetaobject($postId: String!) {
-        metaobjects(type: "custom_post_views", first: 1, query: "post_id:$postId")
- {
+      query FindMetaobject($query: String!) {
+        metaobjects(type: "custom_post_views", first: 1, query: $query) {
           edges {
             node {
               id
@@ -58,7 +57,7 @@ app.post('/api/increment-view', async (req, res) => {
     const findResponse = await client.query({
       data: {
         query: findMetaobjectQuery,
-        variables: { postId },
+        variables: { query: `post_id:${postId}` }, // <= Important fix
       },
     });
 
