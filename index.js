@@ -15,7 +15,7 @@ const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY,
   scopes: ['write_metaobjects', 'read_metaobjects'],
-  hostName: 'bylanglois.com', 
+  hostName: 'galerie-langlois.myshopify.com', 
   isEmbeddedApp: false,
 });
 
