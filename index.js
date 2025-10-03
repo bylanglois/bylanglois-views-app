@@ -1,4 +1,4 @@
-// This is your final, customized code for index.js
+// This is the new, SECURE version of the setup code.
 
 import express from 'express';
 import cors from 'cors';
@@ -10,20 +10,19 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Initialize the Shopify API client
+// Initialize the Shopify API client using the SECURE environment variables
 const shopify = shopifyApi({
-  // You need to get these two from your custom app's settings page in Shopify
-  apiKey: '02965f9492dcb0d4224c9c2f6da882fe', 
-  apiSecretKey: '45dc58d3f686c2aeb8d4db25fd343624', 
+  apiKey: process.env.SHOPIFY_API_KEY, // Reads from Vercel's vault
+  apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY, // Reads from Vercel's vault
   scopes: ['write_metaobjects', 'read_metaobjects'],
   hostName: 'bylanglois.com', 
   isEmbeddedApp: false,
 });
 
-// This uses your credentials directly from the script you provided.
+// This also uses the SECURE environment variable for your token.
 const session = {
-  shop: 'galerie-langlois.myshopify.com', // Filled in from your script
-  accessToken: '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', // Filled in from your script
+  shop: 'galerie-langlois.myshopify.com', 
+  accessToken: process.env.SHOPIFY_ACCESS_TOKEN, // Reads from Vercel's vault
 };
 
 const client = new shopify.clients.Graphql({ session });
