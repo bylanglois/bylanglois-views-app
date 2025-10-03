@@ -117,7 +117,8 @@ app.get('/api/get-views/:postId', async (req, res) => {
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
 
-    res.status(200).json({ success: true, currentViewCount });
+    res.status(200).json({ success: true, viewCount: currentViewCount });
+
   } catch (error) {
     console.error('Error fetching views:', error);
     res.status(500).json({ error: 'Internal Server Error' });
