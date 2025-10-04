@@ -23,7 +23,7 @@ const session = {
 
 const client = new shopify.clients.Graphql({ session });
 
-// --- 2. ENDPOINT: INCREMENT (CORRECTED & SAFER) ---
+// --- 2. ENDPOINT: INCREMENT (CORRECTED & RESILIENT) ---
 app.post('/api/increment-view', async (req, res) => {
   try {
     const { postId } = req.body;
@@ -58,11 +58,18 @@ app.post('/api/increment-view', async (req, res) => {
     const currentViewCount = parseInt(viewField?.value || "0", 10);
     const newViewCount = currentViewCount + 1;
 
-    // --- FIX: Rebuild the fields array to be non-destructive ---
-    // 1. Get all fields EXCEPT the old view_count
-    const updatedFields = metaobject.fields.filter(f => f.key !== "view_count");
-    // 2. Add the new, incremented view_count
-    updatedFields.push({ key: "view_count", value: newViewCount.toString() });
+    // --- FINAL FIX: Sanitize fields to prevent "value cannot be null" error ---
+    // 1. Filter out the old view_count field.
+    // 2. Map over the remaining fields, converting any null/undefined values to empty strings ('').
+    const sanitizedFields = metaobject.fields
+      .filter(f => f.key !== "view_count")
+      .map(field => ({
+        key: field.key,
+        value: field.value || '', // This is the crucial change!
+      }));
+      
+    // 3. Add the new, incremented view_count back to the array.
+    sanitizedFields.push({ key: "view_count", value: newViewCount.toString() });
 
     const updateMetaobjectMutation = `
       mutation UpdateMetaobject($id: ID!, $fields: [MetaobjectFieldInput!]!) {
@@ -81,7 +88,7 @@ app.post('/api/increment-view', async (req, res) => {
         query: updateMetaobjectMutation,
         variables: { 
           id: metaobject.id, 
-          fields: updatedFields // Send the complete list of fields
+          fields: sanitizedFields // Send the clean list of fields
         },
       },
     });
@@ -93,12 +100,13 @@ app.post('/api/increment-view', async (req, res) => {
 
     res.status(200).json({ success: true, newViewCount });
   } catch (error) {
-    console.error('Error incrementing view:', error);
+    // Adding more detailed error logging
+    console.error('Full error object in /api/increment-view:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
 
-// --- 3. ENDPOINT: GET VIEWS (CORRECTED) ---
+// --- 3. ENDPOINT: GET VIEWS (UNCHANGED, STILL CORRECT) ---
 app.get('/api/get-views/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
@@ -131,7 +139,6 @@ app.get('/api/get-views/:postId', async (req, res) => {
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
 
-    // --- FIX: Changed 'viewCount' to 'currentViewCount' to match front-end script ---
     res.status(200).json({ success: true, currentViewCount: currentViewCount });
 
   } catch (error) {
@@ -146,3 +153,4 @@ app.get('/', (req, res) => {
 });
 
 export default app;
+
