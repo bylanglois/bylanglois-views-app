@@ -23,16 +23,16 @@ const session = {
 
 const client = new shopify.clients.Graphql({ session });
 
-// --- 2. ENDPOINT: INCREMENT (déjà existant) ---
+// --- 2. ENDPOINT: INCREMENT ---
 app.post('/api/increment-view', async (req, res) => {
   try {
     const { postId } = req.body;
     if (!postId) return res.status(400).json({ error: 'Post ID is required' });
 
-    // Find metaobject
+    // Step 1: Fetch ALL metaobjects
     const findMetaobjectQuery = `
-      query FindMetaobject($query: String!) {
-        metaobjects(type: "custom_post_views", first: 20, query: $query) {
+      query {
+        metaobjects(type: "custom_post_views", first: 50) {
           edges {
             node {
               id
@@ -43,21 +43,24 @@ app.post('/api/increment-view', async (req, res) => {
       }
     `;
 
-    const findResponse = await client.query({
-      data: {
-        query: findMetaobjectQuery,
-        variables: { query: `post_id:${postId}` },
-      },
-    });
+    const findResponse = await client.query({ data: { query: findMetaobjectQuery } });
+    const allMetaobjects = findResponse.body.data.metaobjects.edges.map(e => e.node);
 
-    const edges = findResponse.body.data.metaobjects.edges;
-    if (edges.length === 0) return res.status(404).json({ error: 'Metaobject not found' });
+    // Step 2: Filter manually for the correct post_id
+    const metaobject = allMetaobjects.find(node =>
+      node.fields.some(f => f.key === "post_id" && f.value === postId)
+    );
 
-    const metaobject = edges[0].node;
+    if (!metaobject) {
+      return res.status(404).json({ success: false, error: 'Metaobject not found' });
+    }
+
+    // Step 3: Increment count
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
     const newViewCount = currentViewCount + 1;
 
+    // Step 4: Update ONLY view_count
     const updateMetaobjectMutation = `
       mutation UpdateMetaobject($id: ID!, $viewCount: String!) {
         metaobjectUpdate(
@@ -70,12 +73,18 @@ app.post('/api/increment-view', async (req, res) => {
       }
     `;
 
-    await client.query({
+    const updateResponse = await client.query({
       data: {
         query: updateMetaobjectMutation,
         variables: { id: metaobject.id, viewCount: newViewCount.toString() },
       },
     });
+
+    const userErrors = updateResponse.body.data.metaobjectUpdate.userErrors;
+    if (userErrors.length > 0) {
+      console.error("Shopify update error:", userErrors);
+      return res.status(500).json({ success: false, error: 'Failed to update view count' });
+    }
 
     res.status(200).json({ success: true, newViewCount });
   } catch (error) {
@@ -84,15 +93,16 @@ app.post('/api/increment-view', async (req, res) => {
   }
 });
 
-// --- 3. NOUVEL ENDPOINT: GET VIEWS ---
+// --- 3. ENDPOINT: GET VIEWS ---
 app.get('/api/get-views/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
     if (!postId) return res.status(400).json({ error: 'Post ID is required' });
 
+    // Step 1: Fetch ALL metaobjects
     const findMetaobjectQuery = `
-      query FindMetaobject($query: String!) {
-        metaobjects(type: "custom_post_views", first: 1, query: $query) {
+      query {
+        metaobjects(type: "custom_post_views", first: 50) {
           edges {
             node {
               id
@@ -103,22 +113,23 @@ app.get('/api/get-views/:postId', async (req, res) => {
       }
     `;
 
-    const findResponse = await client.query({
-      data: {
-        query: findMetaobjectQuery,
-        variables: { query: `post_id:${postId}` },
-      },
-    });
+    const findResponse = await client.query({ data: { query: findMetaobjectQuery } });
+    const allMetaobjects = findResponse.body.data.metaobjects.edges.map(e => e.node);
 
-    const edges = findResponse.body.data.metaobjects.edges;
-    if (edges.length === 0) return res.status(404).json({ error: 'Metaobject not found' });
+    // Step 2: Filter manually for the correct post_id
+    const metaobject = allMetaobjects.find(node =>
+      node.fields.some(f => f.key === "post_id" && f.value === postId)
+    );
 
-    const metaobject = edges[0].node;
+    if (!metaobject) {
+      return res.status(404).json({ success: false, error: 'Metaobject not found' });
+    }
+
+    // Step 3: Get current view_count
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
 
     res.status(200).json({ success: true, viewCount: currentViewCount });
-
   } catch (error) {
     console.error('Error fetching views:', error);
     res.status(500).json({ error: 'Internal Server Error' });
