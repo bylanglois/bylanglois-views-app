@@ -23,13 +23,13 @@ const session = {
 
 const client = new shopify.clients.Graphql({ session });
 
-// --- 2. ENDPOINT: INCREMENT (CORRECTED & RESILIENT) ---
+// --- 2. ENDPOINT: INCREMENT (FINAL, CORRECTED VERSION) ---
 app.post('/api/increment-view', async (req, res) => {
   try {
     const { postId } = req.body;
     if (!postId) return res.status(400).json({ error: 'Post ID is required' });
 
-    // Find metaobject
+    // Step 1: Find the metaobject by its post_id field
     const findMetaobjectQuery = `
       query FindMetaobject($query: String!) {
         metaobjects(type: "custom_post_views", first: 1, query: $query) {
@@ -51,26 +51,30 @@ app.post('/api/increment-view', async (req, res) => {
     });
 
     const edges = findResponse.body.data.metaobjects.edges;
-    if (edges.length === 0) return res.status(404).json({ success: false, error: 'Metaobject not found' });
+    if (edges.length === 0) {
+      return res.status(404).json({ success: false, error: 'Metaobject not found' });
+    }
 
     const metaobject = edges[0].node;
+    
+    // Step 2: Calculate the new view count
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
     const newViewCount = currentViewCount + 1;
 
-    // --- FINAL FIX: Sanitize fields to prevent "value cannot be null" error ---
-    // 1. Filter out the old view_count field.
-    // 2. Map over the remaining fields, converting any null/undefined values to empty strings ('').
-    const sanitizedFields = metaobject.fields
-      .filter(f => f.key !== "view_count")
+    // Step 3: Prepare fields for update, EXCLUDING any fields that are null or empty.
+    // This is the critical fix. Shopify's API rejects updates that include fields with null values.
+    const fieldsForUpdate = metaobject.fields
+      .filter(field => field.key !== 'view_count' && field.value != null && field.value !== '')
       .map(field => ({
         key: field.key,
-        value: field.value || '', // This is the crucial change!
+        value: field.value,
       }));
-      
-    // 3. Add the new, incremented view_count back to the array.
-    sanitizedFields.push({ key: "view_count", value: newViewCount.toString() });
 
+    // Add the updated view_count to the list of fields to be sent.
+    fieldsForUpdate.push({ key: 'view_count', value: newViewCount.toString() });
+
+    // Step 4: Send the update mutation to Shopify
     const updateMetaobjectMutation = `
       mutation UpdateMetaobject($id: ID!, $fields: [MetaobjectFieldInput!]!) {
         metaobjectUpdate(
@@ -86,27 +90,28 @@ app.post('/api/increment-view', async (req, res) => {
     const updateResponse = await client.query({
       data: {
         query: updateMetaobjectMutation,
-        variables: { 
-          id: metaobject.id, 
-          fields: sanitizedFields // Send the clean list of fields
+        variables: {
+          id: metaobject.id,
+          fields: fieldsForUpdate,
         },
       },
     });
 
     if (updateResponse.body.data.metaobjectUpdate.userErrors.length > 0) {
-      console.error('Shopify API Error:', updateResponse.body.data.metaobjectUpdate.userErrors);
-      return res.status(500).json({ success: false, error: 'Error updating metaobject.' });
+      console.error('Shopify API Error during update:', updateResponse.body.data.metaobjectUpdate.userErrors);
+      // Even if it fails, return the old count so the frontend doesn't show 0
+      return res.status(500).json({ success: false, error: 'Failed to update metaobject', newViewCount: currentViewCount });
     }
 
     res.status(200).json({ success: true, newViewCount });
   } catch (error) {
-    // Adding more detailed error logging
-    console.error('Full error object in /api/increment-view:', error);
+    console.error('Full error in /api/increment-view:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
 
-// --- 3. ENDPOINT: GET VIEWS (UNCHANGED, STILL CORRECT) ---
+
+// --- 3. NOUVEL ENDPOINT: GET VIEWS ---
 app.get('/api/get-views/:postId', async (req, res) => {
   try {
     const { postId } = req.params;
@@ -133,17 +138,18 @@ app.get('/api/get-views/:postId', async (req, res) => {
     });
 
     const edges = findResponse.body.data.metaobjects.edges;
-    if (edges.length === 0) return res.status(404).json({ success: false, error: 'Metaobject not found' });
+    if (edges.length === 0) return res.status(404).json({ error: 'Metaobject not found' });
 
     const metaobject = edges[0].node;
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
 
+    // Corrected the key to match what the frontend expects
     res.status(200).json({ success: true, currentViewCount: currentViewCount });
 
   } catch (error) {
     console.error('Error fetching views:', error);
-    res.status(500).json({ success: false, error: 'Internal Server Error' });
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
