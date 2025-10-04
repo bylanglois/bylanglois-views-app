@@ -32,7 +32,7 @@ app.post('/api/increment-view', async (req, res) => {
     // Find metaobject
     const findMetaobjectQuery = `
       query FindMetaobject($query: String!) {
-        metaobjects(type: "custom_post_views", first: 1, query: $query) {
+        metaobjects(type: "custom_post_views", first: 20, query: $query) {
           edges {
             node {
               id
