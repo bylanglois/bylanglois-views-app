@@ -99,6 +99,7 @@ app.get('/api/get-views/:postId', async (req, res) => {
     const { postId } = req.params;
     if (!postId) return res.status(400).json({ error: 'Post ID is required' });
 
+    // Step 1: Fetch ALL metaobjects
     const findMetaobjectQuery = `
       query {
         metaobjects(type: "custom_post_views", first: 50) {
@@ -115,6 +116,7 @@ app.get('/api/get-views/:postId', async (req, res) => {
     const findResponse = await client.query({ data: { query: findMetaobjectQuery } });
     const allMetaobjects = findResponse.body.data.metaobjects.edges.map(e => e.node);
 
+    // Step 2: Filter manually for the correct post_id
     const metaobject = allMetaobjects.find(node =>
       node.fields.some(f => f.key === "post_id" && f.value === postId)
     );
@@ -123,6 +125,7 @@ app.get('/api/get-views/:postId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Metaobject not found' });
     }
 
+    // Step 3: Get current view_count
     const viewField = metaobject.fields.find(f => f.key === "view_count");
     const currentViewCount = parseInt(viewField?.value || "0", 10);
 
@@ -133,43 +136,7 @@ app.get('/api/get-views/:postId', async (req, res) => {
   }
 });
 
-// --- 4. NEW ENDPOINT: GET ALL VIEWS ---
-app.get('/api/get-all-views', async (req, res) => {
-  try {
-    // Fetch ALL metaobjects of type custom_post_views
-    const findMetaobjectQuery = `
-      query {
-        metaobjects(type: "custom_post_views", first: 50) {
-          edges {
-            node {
-              id
-              fields { key value }
-            }
-          }
-        }
-      }
-    `;
-
-    const findResponse = await client.query({ data: { query: findMetaobjectQuery } });
-    const allMetaobjects = findResponse.body.data.metaobjects.edges.map(e => e.node);
-
-    const views = {};
-    allMetaobjects.forEach(node => {
-      const postIdField = node.fields.find(f => f.key === "post_id");
-      const viewCountField = node.fields.find(f => f.key === "view_count");
-      if (postIdField && viewCountField) {
-        views[postIdField.value] = parseInt(viewCountField.value || "0", 10);
-      }
-    });
-
-    res.status(200).json({ success: true, views });
-  } catch (error) {
-    console.error('Error fetching all views:', error);
-    res.status(500).json({ success: false, error: 'Internal Server Error' });
-  }
-});
-
-// --- 5. HEALTH CHECK ---
+// --- 4. HEALTH CHECK ---
 app.get('/', (req, res) => {
   res.send('Bylanglois Views API is running.');
 });
