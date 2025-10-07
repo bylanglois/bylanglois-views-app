@@ -162,4 +162,6 @@ app.get('/', (req, res) => {
 });
 
 export default app;
+// --- 6. HEALTH CHECK ---
+
 
