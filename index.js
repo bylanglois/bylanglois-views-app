@@ -49,7 +49,7 @@ app.post('/api/increment-view', async (req, res) => {
 });
 
 // --- 4. BATCH PROCESSING ENDPOINT (Triggered by Cron) ---
-app.post('/api/process-batch', async (req, res) => {
+app.all('/api/process-batch', async (req, res) => {
   const cronSecret = req.headers['x-cron-secret'];
   if (cronSecret !== process.env.CRON_SECRET) {
     console.warn("Unauthorized cron attempt detected.");
@@ -162,6 +162,4 @@ app.get('/', (req, res) => {
 });
 
 export default app;
-// --- 6. HEALTH CHECK ---
-
 
