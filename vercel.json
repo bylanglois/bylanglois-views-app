@@ -1,9 +1,14 @@
 {
-  "functions": {
-    "api/index.js": {
-      "runtime": "nodejs18.x"
+  "version": 2,
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
     }
-  },
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/index.js" }
+  ],
   "crons": [
     {
       "path": "/api/process-batch",
@@ -11,4 +16,3 @@
     }
   ]
 }
-
