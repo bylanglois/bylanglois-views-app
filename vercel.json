@@ -1,10 +1,15 @@
 {
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
   "crons": [
     {
       "path": "/api/process-batch",
       "schedule": "* * * * *",
       "headers": {
-         "x-cron-secret": "p4pcthw34t43112df.4t209t4572938098085"
+        "x-cron-secret": "p4pcthw34t43112df.4t209t4572938098085"
       }
     }
   ]
