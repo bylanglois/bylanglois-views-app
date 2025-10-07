@@ -5,12 +5,13 @@ import { shopifyApi } from '@shopify/shopify-api';
 import '@shopify/shopify-api/adapters/node';
 
 // A simple console log to confirm in Vercel that the correct version is running
-console.log("--- BYLANGLOIS BATCHING SERVER v2.2 (Corrected) ---");
+console.log("--- BYLANGLOIS BATCHING SERVER v2.3 (Vercel Cron FIXED) ---");
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Shopify setup
 const shopify = shopifyApi({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET_KEY,
@@ -20,7 +21,6 @@ const shopify = shopifyApi({
 });
 
 const session = {
-  // THIS LINE IS NOW CORRECTED
   shop: 'galerie-langlois.myshopify.com',
   accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
 };
@@ -50,10 +50,15 @@ app.post('/api/increment-view', async (req, res) => {
 
 // --- 4. BATCH PROCESSING ENDPOINT (Triggered by Cron) ---
 app.all('/api/process-batch', async (req, res) => {
+  const userAgent = req.headers['user-agent'] || '';
   const cronSecret = req.headers['x-cron-secret'];
-  if (cronSecret !== process.env.CRON_SECRET) {
-    console.warn("Unauthorized cron attempt detected.");
-    return res.status(401).json({ error: 'Unauthorized' });
+
+  // Allow requests from Vercel Cron automatically
+  if (!userAgent.includes('vercel-cron')) {
+    if (process.env.CRON_SECRET && cronSecret !== process.env.CRON_SECRET) {
+      console.warn("Unauthorized non-cron attempt detected.");
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
   }
 
   if (pendingUpdates.size === 0) {
@@ -141,11 +146,11 @@ app.get('/api/get-all-views', async (req, res) => {
     
     const views = {};
     allMetaobjects.forEach(node => {
-        const postIdField = node.fields.find(f => f.key === "post_id");
-        const viewCountField = node.fields.find(f => f.key === "view_count");
-        if(postIdField && viewCountField) {
-            views[postIdField.value] = parseInt(viewCountField.value || "0", 10);
-        }
+      const postIdField = node.fields.find(f => f.key === "post_id");
+      const viewCountField = node.fields.find(f => f.key === "view_count");
+      if (postIdField && viewCountField) {
+        views[postIdField.value] = parseInt(viewCountField.value || "0", 10);
+      }
     });
 
     res.status(200).json({ success: true, views });
@@ -155,11 +160,9 @@ app.get('/api/get-all-views', async (req, res) => {
   }
 });
 
-
 // --- 6. HEALTH CHECK ---
 app.get('/', (req, res) => {
   res.send('Bylanglois Views API (batch-enabled) is running.');
 });
 
 export default app;
-
