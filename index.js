@@ -5,7 +5,7 @@ import { shopifyApi } from '@shopify/shopify-api';
 import '@shopify/shopify-api/adapters/node';
 
 // A simple console log to confirm in Vercel that the correct version is running
-console.log("--- BYLANGLOIS BATCHING SERVER v2.1 ---");
+console.log("--- BYLANGLOIS BATCHING SERVER v2.2 (Corrected) ---");
 
 const app = express();
 app.use(express.json());
@@ -20,19 +20,17 @@ const shopify = shopifyApi({
 });
 
 const session = {
-  shop: 'galerie-langlois.myshop.com',
+  // THIS LINE IS NOW CORRECTED
+  shop: 'galerie-langlois.myshopify.com',
   accessToken: process.env.SHOPIFY_ACCESS_TOKEN,
 };
 
 const client = new shopify.clients.Graphql({ session });
 
 // --- 2. IN-MEMORY CACHE (The Batch Buffer) ---
-// This map holds the view increments between cron job runs. It gets cleared every minute.
 const pendingUpdates = new Map();
 
 // --- 3. FAST INCREMENT ENDPOINT ---
-// This endpoint is what your website calls. It's extremely fast because it only
-// adds a number to the memory cache and does NOT talk to Shopify.
 app.post('/api/increment-view', async (req, res) => {
   try {
     const { postId } = req.body;
@@ -43,7 +41,6 @@ app.post('/api/increment-view', async (req, res) => {
 
     console.log(`Queued +1 for postId=${postId}, pending total=${pendingUpdates.get(postId)}`);
 
-    // Respond immediately with success.
     res.status(202).json({ success: true, message: 'View queued for batch update' });
   } catch (error) {
     console.error('Error queuing view (cache):', error);
@@ -52,8 +49,6 @@ app.post('/api/increment-view', async (req, res) => {
 });
 
 // --- 4. BATCH PROCESSING ENDPOINT (Triggered by Cron) ---
-// Vercel's cron job calls this endpoint every minute. This is the only function
-// that actually talks to Shopify to update the view counts.
 app.post('/api/process-batch', async (req, res) => {
   const cronSecret = req.headers['x-cron-secret'];
   if (cronSecret !== process.env.CRON_SECRET) {
@@ -66,7 +61,6 @@ app.post('/api/process-batch', async (req, res) => {
     return res.status(200).json({ success: true, message: 'Nothing to process' });
   }
 
-  // Atomically move the pending updates to a new map and clear the main one.
   const updatesToProcess = new Map(pendingUpdates);
   pendingUpdates.clear();
 
@@ -112,7 +106,7 @@ app.post('/api/process-batch', async (req, res) => {
     }
 
     if (mutationParts.length === 0) {
-        console.log('Cron job ran: Views were queued but no matching metaobjects found.');
+      console.log('Cron job ran: Views were queued but no matching metaobjects found.');
       return res.status(200).json({ success: true, message: 'No matching metaobjects' });
     }
 
@@ -122,17 +116,14 @@ app.post('/api/process-batch', async (req, res) => {
     console.log(`BATCH UPDATE SUCCESS: Processed ${mutationParts.length} posts.`);
     res.status(200).json({ success: true, updated: mutationParts.length });
   } catch (error) {
-    console.error('CRON JOB FAILED:', error);
+    console.error('CRON JOB FAILED:', error.message);
     res.status(500).json({ error: 'Batch update failed' });
   }
 });
 
-// --- 5. GET VIEWS ENDPOINT (No changes needed here) ---
-app.get('/api/get-views/:postId', async (req, res) => {
+// --- 5. GET ALL VIEWS ENDPOINT ---
+app.get('/api/get-all-views', async (req, res) => {
   try {
-    const { postId } = req.params;
-    if (!postId) return res.status(400).json({ error: 'Post ID is required' });
-
     const findMetaobjectQuery = `
       query {
         metaobjects(type: "custom_post_views", first: 100) {
@@ -147,24 +138,23 @@ app.get('/api/get-views/:postId', async (req, res) => {
     `;
     const findResponse = await client.query({ data: { query: findMetaobjectQuery } });
     const allMetaobjects = findResponse.body.data.metaobjects.edges.map(e => e.node);
+    
+    const views = {};
+    allMetaobjects.forEach(node => {
+        const postIdField = node.fields.find(f => f.key === "post_id");
+        const viewCountField = node.fields.find(f => f.key === "view_count");
+        if(postIdField && viewCountField) {
+            views[postIdField.value] = parseInt(viewCountField.value || "0", 10);
+        }
+    });
 
-    const metaobject = allMetaobjects.find(node =>
-      node.fields.some(f => f.key === "post_id" && f.value === postId)
-    );
-
-    if (!metaobject) {
-      return res.status(404).json({ success: false, error: 'Metaobject not found' });
-    }
-
-    const viewField = metaobject.fields.find(f => f.key === "view_count");
-    const currentViewCount = parseInt(viewField?.value || "0", 10);
-
-    res.status(200).json({ success: true, viewCount: currentViewCount });
+    res.status(200).json({ success: true, views });
   } catch (error) {
-    console.error('Error fetching views:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Error fetching all views:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
+
 
 // --- 6. HEALTH CHECK ---
 app.get('/', (req, res) => {
