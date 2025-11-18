@@ -13,6 +13,10 @@
     {
       "path": "/api/process-batch",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/process-popular",
+      "schedule": "0 * * * *"
     }
   ]
 }
