@@ -159,6 +159,83 @@ app.get('/api/get-all-views', async (req, res) => {
     res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 });
+// --- NEW: POPULAR / TRENDING PROCESSOR (runs hourly) ---
+app.all('/api/process-popular', async (req, res) => {
+  console.log("🚀 Running POPULAR RANKING processor...");
+
+  try {
+    // 1. Fetch all metaobjects
+    const queryMeta = `
+      query {
+        metaobjects(type: "custom_post_views", first: 100) {
+          edges {
+            node {
+              id
+              fields { key value }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await client.query({ data: { query: queryMeta } });
+    const allMeta = response.body.data.metaobjects.edges.map(e => e.node);
+
+    let mutationParts = [];
+    let alias = 0;
+
+    for (const meta of allMeta) {
+      const fields = Object.fromEntries(meta.fields.map(f => [f.key, f.value]));
+
+      const postId = fields.post_id;
+      const viewCount = parseInt(fields.view_count || "0", 10);
+      const prevCount = parseInt(fields.previous_view_count || "0", 10);
+
+      // If this is the first time, we can’t compute last hour
+      const viewsLastHour = Math.max(viewCount - prevCount, 0);
+
+      // Store new previous count (snapshot)
+      const newPrevCount = viewCount;
+
+      // OPTIONAL : assign popular rank later in Liquid
+      // but we still store views_last_hour
+
+      mutationParts.push(`
+        update_${alias++}: metaobjectUpdate(
+          id: "${meta.id}",
+          metaobject: {
+            fields: [
+              { key: "views_last_hour", value: "${viewsLastHour}" },
+              { key: "previous_view_count", value: "${newPrevCount}" }
+            ]
+          }
+        ) {
+          metaobject { id }
+          userErrors { field message }
+        }
+      `);
+    }
+
+    if (mutationParts.length === 0) {
+      console.log("No metaobjects to update.");
+      return res.status(200).json({ success: true, message: "Nothing to update" });
+    }
+
+    const fullMutation = `mutation { ${mutationParts.join("\n")} }`;
+    await client.query({ data: { query: fullMutation } });
+
+    console.log(`🔥 POPULAR UPDATE COMPLETE. Updated ${mutationParts.length} posts.`);
+
+    res.status(200).json({
+      success: true,
+      updated: mutationParts.length
+    });
+
+  } catch (err) {
+    console.error("❌ POPULAR processor error:", err);
+    res.status(500).json({ error: "Failed to run popular processor" });
+  }
+});
 
 // --- 6. HEALTH CHECK ---
 app.get('/', (req, res) => {
@@ -166,3 +243,4 @@ app.get('/', (req, res) => {
 });
 
 export default app;
+
