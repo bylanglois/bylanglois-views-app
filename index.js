@@ -161,13 +161,13 @@ app.get('/api/get-all-views', async (req, res) => {
 });
 // --- NEW: POPULAR / TRENDING PROCESSOR (runs hourly) ---
 app.all('/api/process-popular', async (req, res) => {
-  console.log("🚀 Running POPULAR RANKING processor...");
+  console.log("🚀 Running POPULAR RANK processor...");
 
   try {
-    // 1. Fetch all metaobjects
+    // 1. Fetch all metaobjects (you can increase first: if needed)
     const queryMeta = `
       query {
-        metaobjects(type: "custom_post_views", first: 100) {
+        metaobjects(type: "custom_post_views", first: 250) {
           edges {
             node {
               id
@@ -181,32 +181,73 @@ app.all('/api/process-popular', async (req, res) => {
     const response = await client.query({ data: { query: queryMeta } });
     const allMeta = response.body.data.metaobjects.edges.map(e => e.node);
 
+    // Convert into easier JS shape
+    const mapped = allMeta.map(node => {
+      const f = Object.fromEntries(node.fields.map(x => [x.key, x.value]));
+
+      return {
+        id: node.id,
+        postId: f.post_id,
+        viewCount: parseInt(f.view_count || "0", 10),
+        prevCount: parseInt(f.previous_view_count || "0", 10),
+        viewsLastHour: 0 // temp, we compute now
+      };
+    });
+
+    // 2. Compute views_last_hour
+    mapped.forEach(item => {
+      const diff = item.viewCount - item.prevCount;
+      item.viewsLastHour = diff > 0 ? diff : 0;
+    });
+
+    // 3. Select CANDIDATES for Popular (limit 50)
+    const LIMIT = 50;
+
+    // A: trending candidates first
+    let candidates = mapped.filter(m => m.viewsLastHour > 0);
+
+    // B: if < 50, fill with top view_count total
+    if (candidates.length < LIMIT) {
+      const remainingSlots = LIMIT - candidates.length;
+
+      const heavyHitters = mapped
+        .filter(m => !candidates.includes(m))
+        .sort((a, b) => b.viewCount - a.viewCount)
+        .slice(0, remainingSlots);
+
+      candidates = [...candidates, ...heavyHitters];
+    }
+
+    // Now we have up to 50 candidates only.
+
+    // 4. Sort by your custom logic:
+    // First: by views_last_hour desc
+    // Second: by view_count desc
+    candidates.sort((a, b) => {
+      if (b.viewsLastHour !== a.viewsLastHour) {
+        return b.viewsLastHour - a.viewsLastHour;
+      }
+      return b.viewCount - a.viewCount;
+    });
+
+    // 5. Assign popular_rank (starting at 1)
+    candidates.forEach((item, index) => {
+      item.popularRank = index + 1;
+    });
+
+    // 6. Build the mutation to update only those candidates
     let mutationParts = [];
     let alias = 0;
 
-    for (const meta of allMeta) {
-      const fields = Object.fromEntries(meta.fields.map(f => [f.key, f.value]));
-
-      const postId = fields.post_id;
-      const viewCount = parseInt(fields.view_count || "0", 10);
-      const prevCount = parseInt(fields.previous_view_count || "0", 10);
-
-      // If this is the first time, we can’t compute last hour
-      const viewsLastHour = Math.max(viewCount - prevCount, 0);
-
-      // Store new previous count (snapshot)
-      const newPrevCount = viewCount;
-
-      // OPTIONAL : assign popular rank later in Liquid
-      // but we still store views_last_hour
-
+    candidates.forEach(item => {
       mutationParts.push(`
         update_${alias++}: metaobjectUpdate(
-          id: "${meta.id}",
+          id: "${item.id}",
           metaobject: {
             fields: [
-              { key: "views_last_hour", value: "${viewsLastHour}" },
-              { key: "previous_view_count", value: "${newPrevCount}" }
+              { key: "views_last_hour", value: "${item.viewsLastHour}" },
+              { key: "previous_view_count", value: "${item.viewCount}" },
+              { key: "popular_rank", value: "${item.popularRank}" }
             ]
           }
         ) {
@@ -214,21 +255,16 @@ app.all('/api/process-popular', async (req, res) => {
           userErrors { field message }
         }
       `);
-    }
-
-    if (mutationParts.length === 0) {
-      console.log("No metaobjects to update.");
-      return res.status(200).json({ success: true, message: "Nothing to update" });
-    }
+    });
 
     const fullMutation = `mutation { ${mutationParts.join("\n")} }`;
     await client.query({ data: { query: fullMutation } });
 
-    console.log(`🔥 POPULAR UPDATE COMPLETE. Updated ${mutationParts.length} posts.`);
+    console.log("🔥 POPULAR RANK update complete:", candidates.length, "posts updated.");
 
     res.status(200).json({
       success: true,
-      updated: mutationParts.length
+      updated: candidates.length
     });
 
   } catch (err) {
@@ -237,10 +273,12 @@ app.all('/api/process-popular', async (req, res) => {
   }
 });
 
+
 // --- 6. HEALTH CHECK ---
 app.get('/', (req, res) => {
   res.send('Bylanglois Views API (batch-enabled) is running.');
 });
 
 export default app;
+
 
